@@ -58,6 +58,8 @@ docker build --platform linux/amd64 -f Dockerfile.runpod -t rorygh/dynamicrecons
 docker push rorygh/dynamicreconstruction:latest
 ```
 
+Or automatically: `.github/workflows/docker-publish.yml` builds and pushes this same image on every push to `main` that touches the Dockerfile/pipeline code. Needs `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repo secrets set once (Settings -> Secrets and variables -> Actions).
+
 Launch a pod with an RTX 3090 / A6000 or similar, CUDA 12.4 base image. Mount a network volume at `/workspace/`.
 
 ---
