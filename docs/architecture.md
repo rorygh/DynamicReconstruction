@@ -37,7 +37,7 @@ video (.mp4/...) or photo directory
 
 - Windows dev machine: prebuilt nocuda binary at `C:/Program Files/colmap-x64-windows-nocuda/bin/colmap.exe` (same binary LogMotion uses).
 - RunPod: Ubuntu 22.04's apt `colmap` package is v3.x with incompatible flag names (`--SiftExtraction.*` vs current `--FeatureExtraction.*`, discovered while building LogMotion). `Dockerfile.runpod` instead pulls a modern build via a standalone micromamba/conda-forge env, symlinking out only the `colmap` binary so conda's Python never shadows the base image's torch/CUDA environment.
-- `core/sfm.py`'s `has_cuda()` check controls the `--*.use_gpu` flags passed to COLMAP itself (helps but isn't required); `core/splat.py`'s `_require_cuda()` is a hard requirement, since gsplat's rasterizer is a CUDA-only op.
+- `core/sfm.py` always runs COLMAP's own SIFT on CPU (`--*.use_gpu 0`): neither binary this project installs is CUDA-compiled (Windows nocuda build; RunPod's conda-forge `colmap` package resolves to a CPU-only build too), so GPU mode would fall back to an OpenGL context that doesn't exist in a headless pod -- confirmed by a SIGABRT crash (`opengl_utils.cc: Check failed: context_.create()`) when this was tried. `core/splat.py`'s `_require_cuda()` is the actual hard CUDA requirement, since gsplat's rasterizer is a CUDA-only op.
 
 ## Phase 2 — Moving Object (not yet designed)
 

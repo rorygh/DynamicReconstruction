@@ -6,8 +6,19 @@ WORKDIR /workspace/DynamicReconstruction
 # colmap is v3.x with incompatible flag names (see docs/architecture.md);
 # only the `colmap` binary + its libs are pulled out so conda's own Python
 # never shadows the base image's torch/CUDA environment.
+#
+# conda-forge's colmap=4.0.4 package dynamically links libfaiss.so and
+# libOpenImageIO.so at build time but doesn't declare them as run
+# dependencies (packaging gap, confirmed via `micromamba repoquery depends`
+# against the resolved build showing neither in `depends`) -- without them
+# the binary fails at load with "cannot open shared object file". Installing
+# conda-forge's current libfaiss pulls 1.14.x, which has a newer, ABI-
+# incompatible libfaiss (colmap crashes with "undefined symbol" on faiss
+# constructors/IO functions instead). libfaiss=1.10.0 is the version that
+# was actually current on conda-forge when this colmap build was published
+# and is confirmed to load and run correctly.
 RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba && \
-    micromamba create -y -p /opt/colmap-env -c conda-forge colmap=4.0.4 && \
+    micromamba create -y -p /opt/colmap-env -c conda-forge colmap=4.0.4 "libfaiss=1.10.0=cpu_openblas*" openimageio && \
     ln -s /opt/colmap-env/bin/colmap /usr/local/bin/colmap
 ENV LD_LIBRARY_PATH=/opt/colmap-env/lib:$LD_LIBRARY_PATH
 

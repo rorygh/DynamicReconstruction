@@ -16,18 +16,6 @@ _WIN_COLMAP = Path("C:/Program Files/colmap-x64-windows-nocuda/bin/colmap.exe")
 COLMAP_BIN = str(_WIN_COLMAP) if PLATFORM == "Windows" and _WIN_COLMAP.exists() else "colmap"
 
 
-def has_cuda() -> bool:
-    try:
-        import torch  # type: ignore
-        return torch.cuda.is_available()
-    except Exception:
-        pass  # missing/broken local torch install shouldn't block a CPU-only SfM run
-    try:
-        return subprocess.run(["nvidia-smi"], capture_output=True).returncode == 0
-    except FileNotFoundError:
-        return False
-
-
 def _run(cmd: list, **kwargs):
     print(f"+ {' '.join(str(c) for c in cmd)}")
     subprocess.run(cmd, check=True, **kwargs)
@@ -54,16 +42,20 @@ def run_sparse(
     workspace_dir.mkdir(parents=True, exist_ok=True)
     sparse_dir.mkdir(parents=True, exist_ok=True)
 
-    use_gpu = has_cuda()
-    gpu_flag = "1" if use_gpu else "0"
-    print(f"Platform: {PLATFORM}  |  GPU: {use_gpu}")
+    print(f"Platform: {PLATFORM}")
 
+    # COLMAP's own --use_gpu SIFT path needs either a CUDA-compiled colmap
+    # binary or a working OpenGL context; neither binary this project installs
+    # has the former (Windows nocuda build, RunPod's conda-forge `colmap`
+    # package -- see Dockerfile.runpod), and headless pods have no display for
+    # the latter. Always run COLMAP's own SIFT on CPU; the CUDA-only step is
+    # core/splat.py's gsplat training, not this one.
     _run([
         COLMAP_BIN, "feature_extractor",
         "--database_path", str(db_path),
         "--image_path", str(image_dir),
         "--ImageReader.single_camera", "1",
-        "--FeatureExtraction.use_gpu", gpu_flag,
+        "--FeatureExtraction.use_gpu", "0",
         "--FeatureExtraction.max_image_size", str(max_image_size),
         "--SiftExtraction.max_num_features", str(max_num_features),
     ])
@@ -72,7 +64,7 @@ def run_sparse(
         _run([
             COLMAP_BIN, "sequential_matcher",
             "--database_path", str(db_path),
-            "--FeatureMatching.use_gpu", gpu_flag,
+            "--FeatureMatching.use_gpu", "0",
             "--SequentialMatching.overlap", str(sequential_overlap),
             "--SequentialMatching.loop_detection", "0",
         ])
@@ -80,7 +72,7 @@ def run_sparse(
         _run([
             COLMAP_BIN, "exhaustive_matcher",
             "--database_path", str(db_path),
-            "--FeatureMatching.use_gpu", gpu_flag,
+            "--FeatureMatching.use_gpu", "0",
         ])
     else:
         sys.exit(f"Unknown matcher '{matcher}' (expected 'sequential' or 'exhaustive')")

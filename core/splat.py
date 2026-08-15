@@ -36,9 +36,10 @@ def _load_colmap_scene(sparse_model_dir: Path, image_dir: Path):
         cam = recon.cameras[image.camera_id]
         fx, fy, cx, cy = cam.focal_length_x, cam.focal_length_y, cam.principal_point_x, cam.principal_point_y
 
+        cam_from_world = image.cam_from_world()
         w2c = np.eye(4, dtype=np.float32)
-        w2c[:3, :3] = image.cam_from_world.rotation.matrix()
-        w2c[:3, 3] = image.cam_from_world.translation
+        w2c[:3, :3] = cam_from_world.rotation.matrix()
+        w2c[:3, 3] = cam_from_world.translation
         viewmats.append(w2c)
 
         K = np.eye(3, dtype=np.float32)
@@ -149,6 +150,7 @@ def train(
             width=scene["width"],
             height=scene["height"],
             sh_degree=cur_degree,
+            packed=False,  # strategy.step_post_backward(..., packed=False) needs dense [C, N, ...] outputs
         )
         render = render[0, ..., :3]
 
