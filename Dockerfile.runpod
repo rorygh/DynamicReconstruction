@@ -1,0 +1,25 @@
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+
+WORKDIR /workspace/DynamicReconstruction
+
+# COLMAP via a standalone micromamba env (conda-forge). Ubuntu 22.04's apt
+# colmap is v3.x with incompatible flag names (see docs/architecture.md);
+# only the `colmap` binary + its libs are pulled out so conda's own Python
+# never shadows the base image's torch/CUDA environment.
+RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba && \
+    micromamba create -y -p /opt/colmap-env -c conda-forge colmap=4.0.4 && \
+    ln -s /opt/colmap-env/bin/colmap /usr/local/bin/colmap
+ENV LD_LIBRARY_PATH=/opt/colmap-env/lib:$LD_LIBRARY_PATH
+
+# Install uv for fast installs
+RUN pip install uv
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN uv pip install --system -r requirements.txt
+
+# Copy source
+COPY . .
+
+# Default: drop into bash; pipeline launched manually via reconstruct.py
+CMD ["/bin/bash"]

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.pth
+*.ckpt
+checkpoints/
+runs/
+output/
+data/
+*.ply
+*.egg-info/
+.env
+.claude/
+*.log

@@ -1,0 +1,23 @@
+{
+  "frames": {
+    "fps": 2,
+    "video_extensions": [".mp4", ".mov", ".avi", ".mkv", ".mts", ".m4v"],
+    "image_extensions": [".jpg", ".jpeg", ".png"]
+  },
+  "colmap": {
+    "matcher": "sequential",
+    "sequential_overlap": 10,
+    "max_image_size": 1600,
+    "max_num_features": 8192
+  },
+  "gsplat": {
+    "iterations": 30000,
+    "sh_degree": 3,
+    "means_lr": 0.00016,
+    "opacity_lr": 0.05,
+    "scales_lr": 0.005,
+    "quats_lr": 0.001,
+    "colors_lr": 0.0025,
+    "densify_until_iter": 15000
+  }
+}
