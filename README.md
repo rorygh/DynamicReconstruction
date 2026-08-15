@@ -2,7 +2,7 @@
 
 Open, automatable, GPU-based pipeline: a small video or photo collection walking around an object → a 3D point cloud. Fully scriptable/customizable in Python.
 
-**Repo:** to be created
+**Repo:** https://github.com/rorygh/DynamicReconstruction
 
 ---
 
@@ -84,7 +84,7 @@ DynamicReconstruction/
 
 ## Git
 
-- Remote: to be created
+- Remote: https://github.com/rorygh/DynamicReconstruction
 - Commit email: rory@mcclenagan.net
 
 ## Key Dependencies
