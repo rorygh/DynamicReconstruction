@@ -32,6 +32,16 @@ RUN uv pip install --system -r requirements.txt
 # Copy source
 COPY . .
 
+# Scope the conda env's OpenSSL away from the rest of the container: the
+# ENV above is process-wide, so sshd/ssh-keygen (system OpenSSL 3.0.x) were
+# loading colmap-env's newer conda-forge OpenSSL (3.6.x) instead, an ABI
+# mismatch that broke SSH host-key generation. Re-wrap colmap so only its
+# own invocation sees that path, then clear the global var.
+RUN rm /usr/local/bin/colmap && \
+    printf '#!/bin/bash\nexec env LD_LIBRARY_PATH="/opt/colmap-env/lib:$LD_LIBRARY_PATH" /opt/colmap-env/bin/colmap "$@"\n' > /usr/local/bin/colmap && \
+    chmod +x /usr/local/bin/colmap
+ENV LD_LIBRARY_PATH=
+
 # Run the base image's start script (sshd/nginx/jupyter setup, then
 # `sleep infinity`) instead of dropping straight to bash -- overriding CMD
 # here previously skipped it entirely, which is why sshd never started even
