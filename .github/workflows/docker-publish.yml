@@ -5,16 +5,10 @@ name: Build and push RunPod image
 #   DOCKERHUB_TOKEN     - Docker Hub access token (not your password;
 #                          create one at hub.docker.com/settings/security)
 
+# Manual trigger only (Actions tab -> Build and push RunPod image -> Run
+# workflow, or `gh workflow run docker-publish.yml`) -- not on every push,
+# so iterating on Dockerfile.runpod doesn't kick off a build each commit.
 on:
-  push:
-    branches: [main]
-    paths:
-      - Dockerfile.runpod
-      - requirements.txt
-      - core/**
-      - reconstruct.py
-      - configs/**
-      - .github/workflows/docker-publish.yml
   workflow_dispatch: {}
 
 jobs:
