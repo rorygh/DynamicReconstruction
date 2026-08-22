@@ -114,10 +114,29 @@ This directly supports the "perhaps not enough images" hypothesis: 16 views
 is very little multi-view constraint for a gaussian field to resolve true
 3D structure instead of memorizing per-training-view appearance.
 
-**Follow-up (in progress at the time of writing)**: training the same
-config on the full 128-image reconstruction (65,201 sparse points, all
-images registered) to directly test whether more views closes this gap --
-see the pipeline output / follow-up note once that run completes.
+**Follow-up: full 128-image reconstruction.** Same config (SSIM+LR-decay),
+trained on the full 128-image sparse model (62,979 points, all images
+registered), held out every 5th image (25 test views vs. the 20-image run's
+4):
+
+| Images | Iterations | Final test PSNR | Final test SSIM |
+|---|---|---|---|
+| 20 (16 train / 4 test) | 7,000 | 10.64 | 0.284 |
+| 128 (102 train / 26 test) | 9,000 | 13.02 | 0.338 |
+
+More images measurably helped (+2.4 dB), confirming the hypothesis
+directionally -- but the gap to a healthy NVS result (25-30+ dB) is still
+enormous, so image count alone doesn't explain it. Test PSNR plateaued by
+~step 6,000-7,000 in both the 9,000- and a longer 15,000-iteration run on
+the same 128-image data (12.6-13.1 dB either way, no further gain from
+training longer), which rules out "just train longer" as the fix too.
+Suspect the real remaining gap is the training loop itself (single random
+view per step with no multi-view consistency term, vs. the reference
+implementation's same-in-principle-but-more-carefully-tuned schedule) --
+worth a follow-up ablation isolating that, not attempted here given time
+budget. `output/south-building-full/points.ply` (56,522 Gaussians) is the
+artifact from this run, viewable via `viewers/render_point_viewer.py` and
+`viewers/render_reference_viewer.py`.
 
 ## Bottom line
 
@@ -129,6 +148,8 @@ see the pipeline output / follow-up note once that run completes.
   research -- a good example of why this doc exists instead of trusting the
   survey alone.
 - Quality: the "doesn't look photorealistic" complaint has a concrete,
-  measured cause (PSNR ~10dB, not a vibe) that traces to sparse training
-  views, not a rendering bug -- pending the full-128-image re-run for
-  confirmation.
+  measured cause (PSNR ~10-13dB, not a vibe), not a rendering bug. Image
+  count is part of the story (+2.4dB going from 20 to 128 images) but not
+  all of it -- test PSNR plateaus by step ~6,000-7,000 regardless of total
+  iteration budget, pointing at the simplified single-view-per-step
+  training loop itself as the next thing to fix, not just "more data."
