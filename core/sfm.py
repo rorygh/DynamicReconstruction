@@ -85,9 +85,14 @@ def run_sparse(
         "--Mapper.num_threads", "8",
     ])
 
-    models = list(sparse_dir.iterdir())
+    models = [m for m in sparse_dir.iterdir() if m.is_dir()]
     if not models:
         sys.exit("COLMAP mapper produced no models -- insufficient overlap or matching failed.")
-    model = sorted(models)[0]
+    if len(models) > 1:
+        import pycolmap
+        model = max(models, key=lambda m: len(pycolmap.Reconstruction(str(m)).images))
+        print(f"COLMAP mapper produced {len(models)} disconnected models -- using the largest ({model.name})")
+    else:
+        model = models[0]
     print(f"Done -- sparse model at {model}")
     return model

@@ -174,17 +174,34 @@ def train(
 
 
 def _export_ply(params, ply_path: Path):
+    """Write the standard 3DGS splat PLY: raw (pre-activation) per-Gaussian
+    position/normal/color(SH dc)/opacity/scale/rotation -- the format read by
+    SuperSplat, antimatter15/splat, and the reference INRIA viewer, so the
+    export doubles as a real point cloud AND a real splat file."""
     from plyfile import PlyData, PlyElement
 
     means = params["means"].detach().cpu().numpy()
     sh0 = params["sh0"].detach().cpu().numpy().reshape(-1, 3)
-    rgb = np.clip((sh0 * 0.28209479177387814 + 0.5) * 255.0, 0, 255).astype(np.uint8)
+    opacities = params["opacities"].detach().cpu().numpy()
+    scales = params["scales"].detach().cpu().numpy()
+    quats = params["quats"].detach().cpu().numpy()
 
-    vertex = np.empty(means.shape[0], dtype=[
+    n = means.shape[0]
+    vertex = np.empty(n, dtype=[
         ("x", "f4"), ("y", "f4"), ("z", "f4"),
-        ("red", "u1"), ("green", "u1"), ("blue", "u1"),
+        ("nx", "f4"), ("ny", "f4"), ("nz", "f4"),
+        ("f_dc_0", "f4"), ("f_dc_1", "f4"), ("f_dc_2", "f4"),
+        ("opacity", "f4"),
+        ("scale_0", "f4"), ("scale_1", "f4"), ("scale_2", "f4"),
+        ("rot_0", "f4"), ("rot_1", "f4"), ("rot_2", "f4"), ("rot_3", "f4"),
     ])
     vertex["x"], vertex["y"], vertex["z"] = means[:, 0], means[:, 1], means[:, 2]
-    vertex["red"], vertex["green"], vertex["blue"] = rgb[:, 0], rgb[:, 1], rgb[:, 2]
+    vertex["nx"] = vertex["ny"] = vertex["nz"] = 0.0
+    vertex["f_dc_0"], vertex["f_dc_1"], vertex["f_dc_2"] = sh0[:, 0], sh0[:, 1], sh0[:, 2]
+    vertex["opacity"] = opacities
+    vertex["scale_0"], vertex["scale_1"], vertex["scale_2"] = scales[:, 0], scales[:, 1], scales[:, 2]
+    vertex["rot_0"], vertex["rot_1"], vertex["rot_2"], vertex["rot_3"] = (
+        quats[:, 0], quats[:, 1], quats[:, 2], quats[:, 3],
+    )
 
     PlyData([PlyElement.describe(vertex, "vertex")]).write(str(ply_path))

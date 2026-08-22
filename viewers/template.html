@@ -1,0 +1,547 @@
+<title>South Building Splat</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+  :root{
+    --bg: #12151a;
+    --panel: #1a1f27;
+    --panel-2: #20262f;
+    --border: #2a313b;
+    --text: #e7ebf0;
+    --text-muted: #8993a3;
+    --accent: #e8934a;
+    --accent-dim: #a8683a;
+    --blue: #5fb3d9;
+  }
+
+  *{ box-sizing: border-box; }
+  html, body{
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    overflow: hidden;
+  }
+
+  #stage{ position: fixed; inset: 0; }
+  canvas{ display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas:active{ cursor: grabbing; }
+
+  header{
+    position: fixed; top: 0; left: 0; right: 0;
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 18px 24px; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(18,21,26,0.85), rgba(18,21,26,0));
+  }
+  h1{
+    font-family: 'Big Shoulders Display', sans-serif;
+    font-weight: 700; font-size: 26px; letter-spacing: 0.02em;
+    text-transform: uppercase; margin: 0; color: var(--text);
+  }
+  h1 span{ color: var(--accent); }
+  .subtitle{
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    color: var(--text-muted); margin-top: 4px;
+  }
+
+  .panel{
+    position: fixed; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 14px 16px;
+  }
+
+  #stats{
+    top: 18px; right: 24px; min-width: 208px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  }
+  #stats .row{
+    display: flex; justify-content: space-between; gap: 16px;
+    padding: 3px 0; border-bottom: 1px solid var(--border);
+  }
+  #stats .row:last-child{ border-bottom: none; }
+  #stats .k{ color: var(--text-muted); }
+  #stats .v{ color: var(--text); font-variant-numeric: tabular-nums; }
+  #stats .v.accent{ color: var(--accent); }
+  #stats .label{
+    font-family: 'IBM Plex Sans', sans-serif; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);
+    margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+
+  #legend{
+    bottom: 20px; left: 24px;
+    font-size: 12px; color: var(--text-muted);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  #legend .k{ color: var(--text); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+  #legend .k .key{
+    display: inline-block; min-width: 64px; color: var(--accent);
+  }
+
+  #reset{
+    bottom: 20px; right: 24px;
+    font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; font-weight: 500;
+    color: var(--text); cursor: pointer; user-select: none;
+    letter-spacing: 0.03em;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  #reset:hover{ border-color: var(--accent); color: var(--accent); }
+  #reset:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div id="stage"><canvas id="gl"></canvas></div>
+
+<header>
+  <div>
+    <h1>South Building <span>Splat</span></h1>
+    <div class="subtitle">DynamicReconstruction &mdash; smoke test, __SCENE_DATE__</div>
+  </div>
+</header>
+
+<div class="panel" id="stats">
+  <div class="label">Reconstruction</div>
+  <div class="row"><span class="k">Source photos</span><span class="v">__N_IMAGES__</span></div>
+  <div class="row"><span class="k">Views registered</span><span class="v accent">__N_REGISTERED__</span></div>
+  <div class="row"><span class="k">Sparse points</span><span class="v">__N_SPARSE__</span></div>
+  <div class="row"><span class="k">Gaussians (final)</span><span class="v accent">__N_GAUSSIANS__</span></div>
+  <div class="row"><span class="k">Train iterations</span><span class="v">__N_ITERS__</span></div>
+  <div class="row"><span class="k">Wall time</span><span class="v">__WALL_TIME__</span></div>
+</div>
+
+<div class="panel" id="legend">
+  <div class="k"><span class="key">drag</span>orbit</div>
+  <div class="k"><span class="key">scroll</span>zoom</div>
+  <div class="k"><span class="key">shift+drag</span>pan</div>
+  <div class="k"><span class="key">&larr; &rarr; &uarr; &darr;</span>nudge</div>
+  <div class="k"><span class="key">1&ndash;4</span>preset views</div>
+  <div class="k"><span class="key">v</span>save view to url</div>
+</div>
+
+<div class="panel" id="reset" tabindex="0" role="button">reset view</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- embedded point data (real per-Gaussian values, not placeholders) ----
+  var POS_B64 = "__POSITIONS_B64__";
+  var COL_B64 = "__COLORS_B64__";
+  var COV0_B64 = "__COV0_B64__";
+  var COV1_B64 = "__COV1_B64__";
+  var OPA_B64 = "__OPACITY_B64__";
+
+  function b64ToBytes(b64){
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  var positions = new Float32Array(b64ToBytes(POS_B64).buffer);
+  var colors = new Float32Array(b64ToBytes(COL_B64).buffer);
+  // world-space 3D covariance per Gaussian, 6 unique entries packed as two
+  // vec3 attributes: cov0=(S00,S01,S02), cov1=(S11,S12,S22). Computed from
+  // the real trained scale+rotation (see the Python export step), not a
+  // placeholder -- this is what lets each splat project to a true oriented
+  // screen-space ellipse instead of a uniform circular dot.
+  var cov0 = new Float32Array(b64ToBytes(COV0_B64).buffer);
+  var cov1 = new Float32Array(b64ToBytes(COV1_B64).buffer);
+  var gOpacity = new Float32Array(b64ToBytes(OPA_B64).buffer);
+  var count = positions.length / 3;
+
+  // scratch buffers reused every re-sort, avoids reallocating for 150k+ points
+  var order = new Uint32Array(count);
+  for (var oi = 0; oi < count; oi++) order[oi] = oi;
+  var sortedPos = new Float32Array(positions.length);
+  var sortedCol = new Float32Array(colors.length);
+  var sortedCov0 = new Float32Array(cov0.length);
+  var sortedCov1 = new Float32Array(cov1.length);
+  var sortedOpa = new Float32Array(count);
+  var depthBuf = new Float32Array(count);
+  var NUM_BUCKETS = 16384;
+  var bucketOf = new Uint32Array(count);
+  var bucketCounts = new Uint32Array(NUM_BUCKETS + 1);
+
+  // ---- bounding sphere / centroid ----
+  var cx = 0, cy = 0, cz = 0;
+  for (var i = 0; i < count; i++){
+    cx += positions[i*3]; cy += positions[i*3+1]; cz += positions[i*3+2];
+  }
+  cx /= count; cy /= count; cz /= count;
+  var radius = 0.001;
+  for (var i = 0; i < count; i++){
+    var dx = positions[i*3]-cx, dy = positions[i*3+1]-cy, dz = positions[i*3+2]-cz;
+    var d = Math.sqrt(dx*dx+dy*dy+dz*dz);
+    if (d > radius) radius = d;
+  }
+
+  // ---- mat4 helpers ----
+  function mat4Perspective(fovy, aspect, near, far){
+    var f = 1.0 / Math.tan(fovy/2), out = new Float32Array(16);
+    out[0]=f/aspect; out[5]=f; out[11]=-1;
+    out[10]=(far+near)/(near-far); out[14]=(2*far*near)/(near-far);
+    return out;
+  }
+  function mat4LookAt(eye, target, up){
+    var zx=eye[0]-target[0], zy=eye[1]-target[1], zz=eye[2]-target[2];
+    var zl=Math.hypot(zx,zy,zz); zx/=zl; zy/=zl; zz/=zl;
+    var xx=up[1]*zz-up[2]*zy, xy=up[2]*zx-up[0]*zz, xz=up[0]*zy-up[1]*zx;
+    var xl=Math.hypot(xx,xy,xz)||1; xx/=xl; xy/=xl; xz/=xl;
+    var yx=zy*xz-zz*xy, yy=zz*xx-zx*xz, yz=zx*xy-zy*xx;
+    return new Float32Array([
+      xx, yx, zx, 0,
+      xy, yy, zy, 0,
+      xz, yz, zz, 0,
+      -(xx*eye[0]+xy*eye[1]+xz*eye[2]),
+      -(yx*eye[0]+yy*eye[1]+yz*eye[2]),
+      -(zx*eye[0]+zy*eye[1]+zz*eye[2]), 1
+    ]);
+  }
+  function mat4Mul(a,b){
+    var out = new Float32Array(16);
+    for (var c=0;c<4;c++) for (var r=0;r<4;r++){
+      var s=0;
+      for (var k=0;k<4;k++) s += a[k*4+r]*b[c*4+k];
+      out[c*4+r]=s;
+    }
+    return out;
+  }
+
+  // ---- webgl setup ----
+  var canvas = document.getElementById('gl');
+  var gl = canvas.getContext('webgl', {antialias:true});
+  if (!gl){ document.getElementById('stage').textContent = 'WebGL unavailable in this browser.'; return; }
+
+  function resize(){
+    var dpr = Math.min(window.devicePixelRatio||1, 2);
+    canvas.width = canvas.clientWidth*dpr; canvas.height = canvas.clientHeight*dpr;
+    gl.viewport(0,0,canvas.width,canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Real EWA/3DGS splat rasterization: project each Gaussian's 3D covariance
+  // (built from its own trained scale + rotation, not a scalar size) through
+  // the current camera into a 2D screen-space covariance, then shade each
+  // point-sprite pixel with the *exact* anisotropic gaussian falloff via the
+  // conic (inverse covariance) -- same math as the reference CUDA rasterizer
+  // and every real web splat viewer. This is what actually turns "dots" into
+  // oriented, surface-hugging ellipses.
+  var vsSrc = [
+    "attribute vec3 aPos;",
+    "attribute vec3 aColor;",
+    "attribute vec3 aCov0;", // (Sigma00, Sigma01, Sigma02)
+    "attribute vec3 aCov1;", // (Sigma11, Sigma12, Sigma22)
+    "attribute float aOpacity;",
+    "uniform mat4 uProj;",
+    "uniform mat4 uView;",
+    "uniform float uFocalPx;",
+    "uniform float uMaxPointSize;",
+    "varying vec3 vColor;",
+    "varying float vOpacity;",
+    "varying vec3 vConic;",
+    "varying float vPointSize;",
+    "void main(){",
+    "  vec4 viewPos4 = uView * vec4(aPos, 1.0);",
+    "  vec3 t = viewPos4.xyz;",
+    "  gl_Position = uProj * viewPos4;",
+    "  if (t.z > 0.0){ gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }",
+    "  float d = max(-t.z, 1e-4);",
+    "  mat3 W = mat3(uView);",
+    "  mat3 J = mat3(",
+    "    uFocalPx/d, 0.0, 0.0,",
+    "    0.0, uFocalPx/d, 0.0,",
+    "    uFocalPx*t.x/(d*d), uFocalPx*t.y/(d*d), 0.0",
+    "  );",
+    "  mat3 T = J * W;",
+    "  mat3 Tt = mat3(T[0][0],T[1][0],T[2][0], T[0][1],T[1][1],T[2][1], T[0][2],T[1][2],T[2][2]);",
+    "  mat3 Vrk = mat3(",
+    "    aCov0.x, aCov0.y, aCov0.z,",
+    "    aCov0.y, aCov1.x, aCov1.y,",
+    "    aCov0.z, aCov1.y, aCov1.z",
+    "  );",
+    "  mat3 cov = T * Vrk * Tt;",
+    // +0.3px low-pass so degenerate/tiny splats don't vanish or alias --
+    // same fudge factor the reference rasterizer uses
+    "  float covXX = cov[0][0] + 0.3;",
+    "  float covXY = cov[1][0];",
+    "  float covYY = cov[1][1] + 0.3;",
+    "  float det = covXX*covYY - covXY*covXY;",
+    "  if (det <= 0.0){ gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }",
+    "  float invDet = 1.0 / det;",
+    "  vConic = vec3(covYY*invDet, -covXY*invDet, covXX*invDet);",
+    "  float mid = 0.5*(covXX+covYY);",
+    "  float lambda1 = mid + sqrt(max(0.1, mid*mid - det));",
+    "  gl_PointSize = clamp(3.5 * sqrt(lambda1) * 2.0, 1.0, uMaxPointSize);",
+    "  vPointSize = gl_PointSize;",
+    "  vColor = aColor;",
+    "  vOpacity = aOpacity;",
+    "}"
+  ].join("\n");
+
+  var fsSrc = [
+    "precision mediump float;",
+    "varying vec3 vColor;",
+    "varying float vOpacity;",
+    "varying vec3 vConic;",
+    "varying float vPointSize;",
+    "void main(){",
+    "  vec2 d = (gl_PointCoord - vec2(0.5)) * vPointSize;",
+    "  float power = -0.5 * (vConic.x*d.x*d.x + 2.0*vConic.y*d.x*d.y + vConic.z*d.y*d.y);",
+    "  if (power > 0.0) discard;",
+    "  float alpha = exp(power) * vOpacity;",
+    "  if (alpha < 0.006) discard;",
+    "  gl_FragColor = vec4(vColor, alpha);",
+    "}"
+  ].join("\n");
+
+  function compile(type, src){
+    var sh = gl.createShader(type);
+    gl.shaderSource(sh, src); gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+    return sh;
+  }
+  var prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  var posBuf = gl.createBuffer();
+  var aPos = gl.getAttribLocation(prog, 'aPos');
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+  var colBuf = gl.createBuffer();
+  var aColor = gl.getAttribLocation(prog, 'aColor');
+  gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aColor);
+  gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 0, 0);
+
+  var cov0Buf = gl.createBuffer();
+  var aCov0 = gl.getAttribLocation(prog, 'aCov0');
+  gl.bindBuffer(gl.ARRAY_BUFFER, cov0Buf);
+  gl.bufferData(gl.ARRAY_BUFFER, cov0, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aCov0);
+  gl.vertexAttribPointer(aCov0, 3, gl.FLOAT, false, 0, 0);
+
+  var cov1Buf = gl.createBuffer();
+  var aCov1 = gl.getAttribLocation(prog, 'aCov1');
+  gl.bindBuffer(gl.ARRAY_BUFFER, cov1Buf);
+  gl.bufferData(gl.ARRAY_BUFFER, cov1, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aCov1);
+  gl.vertexAttribPointer(aCov1, 3, gl.FLOAT, false, 0, 0);
+
+  var opaBuf = gl.createBuffer();
+  var aOpacity = gl.getAttribLocation(prog, 'aOpacity');
+  gl.bindBuffer(gl.ARRAY_BUFFER, opaBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, gOpacity, gl.DYNAMIC_DRAW);
+  gl.enableVertexAttribArray(aOpacity);
+  gl.vertexAttribPointer(aOpacity, 1, gl.FLOAT, false, 0, 0);
+
+  var uProj = gl.getUniformLocation(prog, 'uProj');
+  var uView = gl.getUniformLocation(prog, 'uView');
+  var uFocalPx = gl.getUniformLocation(prog, 'uFocalPx');
+  var uMaxPointSize = gl.getUniformLocation(prog, 'uMaxPointSize');
+  var maxPointSize = Math.min(400, gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1]);
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.clearColor(0x12/255, 0x15/255, 0x1a/255, 1.0);
+
+  // ---- back-to-front depth sort (painter's algorithm for alpha blending) ----
+  // A full comparator sort over 150k+ points every frame would be too slow;
+  // this is an O(n) counting sort into depth buckets, run only when the
+  // camera actually moves (see scheduleSort below), with results re-uploaded
+  // to the GPU buffers rather than resorted every animation frame.
+  function resort(eye, viewDir){
+    var minD = Infinity, maxD = -Infinity;
+    for (var i = 0; i < count; i++){
+      var d = (positions[i*3]-eye[0])*viewDir[0] + (positions[i*3+1]-eye[1])*viewDir[1] + (positions[i*3+2]-eye[2])*viewDir[2];
+      depthBuf[i] = d;
+      if (d < minD) minD = d;
+      if (d > maxD) maxD = d;
+    }
+    var range = (maxD - minD) || 1;
+    bucketCounts.fill(0);
+    for (var i = 0; i < count; i++){
+      // farthest point -> bucket 0 (drawn first), nearest -> last bucket
+      var t = (depthBuf[i] - minD) / range;
+      var b = Math.min(NUM_BUCKETS - 1, Math.max(0, Math.floor((1 - t) * (NUM_BUCKETS - 1))));
+      bucketOf[i] = b;
+      bucketCounts[b + 1]++;
+    }
+    for (var b = 0; b < NUM_BUCKETS; b++) bucketCounts[b + 1] += bucketCounts[b];
+    for (var i = 0; i < count; i++) order[bucketCounts[bucketOf[i]]++] = i;
+
+    for (var i = 0; i < count; i++){
+      var s = order[i];
+      sortedPos[i*3] = positions[s*3]; sortedPos[i*3+1] = positions[s*3+1]; sortedPos[i*3+2] = positions[s*3+2];
+      sortedCol[i*3] = colors[s*3]; sortedCol[i*3+1] = colors[s*3+1]; sortedCol[i*3+2] = colors[s*3+2];
+      sortedCov0[i*3] = cov0[s*3]; sortedCov0[i*3+1] = cov0[s*3+1]; sortedCov0[i*3+2] = cov0[s*3+2];
+      sortedCov1[i*3] = cov1[s*3]; sortedCov1[i*3+1] = cov1[s*3+1]; sortedCov1[i*3+2] = cov1[s*3+2];
+      sortedOpa[i] = gOpacity[s];
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, sortedPos, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuf); gl.bufferData(gl.ARRAY_BUFFER, sortedCol, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, cov0Buf); gl.bufferData(gl.ARRAY_BUFFER, sortedCov0, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, cov1Buf); gl.bufferData(gl.ARRAY_BUFFER, sortedCov1, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, opaBuf); gl.bufferData(gl.ARRAY_BUFFER, sortedOpa, gl.DYNAMIC_DRAW);
+  }
+
+  var sortTimer = null;
+  function scheduleSort(){
+    if (sortTimer) clearTimeout(sortTimer);
+    sortTimer = setTimeout(function(){
+      var eye = eyeFromOrbit();
+      var fx = target[0]-eye[0], fy = target[1]-eye[1], fz = target[2]-eye[2];
+      var fl = Math.hypot(fx,fy,fz) || 1;
+      resort(eye, [fx/fl, fy/fl, fz/fl]);
+    }, 140);
+  }
+
+  // ---- orbit camera ----
+  var target = [cx, cy, cz];
+  var azimuth = 0.6, elevation = 0.35;
+  var camRadius = radius * 2.6;
+  var minRadius = radius * 0.15, maxRadius = radius * 8;
+
+  // numbered preset views, in the spirit of antimatter15/splat's 0-9 view keys
+  var PRESETS = [
+    {az: 0.6, el: 0.35, r: radius * 2.6},        // 1: default
+    {az: 0.6, el: 1.3, r: radius * 2.6},          // 2: top-down
+    {az: 0.6 + Math.PI, el: 0.35, r: radius * 2.6}, // 3: opposite side
+    {az: 0.6, el: 0.12, r: radius * 1.3}          // 4: close, low angle
+  ];
+  function goToPreset(n){
+    var p = PRESETS[n - 1];
+    if (!p) return;
+    azimuth = p.az; elevation = p.el; camRadius = p.r; target = [cx, cy, cz];
+    scheduleSort();
+  }
+
+  // shareable view state in the url hash, in the spirit of antimatter15/splat's "v" key
+  function encodeView(){
+    var s = [azimuth, elevation, camRadius, target[0], target[1], target[2]]
+      .map(function(n){ return n.toFixed(4); }).join(',');
+    history.replaceState(null, '', '#v=' + s);
+  }
+  function decodeViewFromHash(){
+    var m = /^#v=([-\d.eE,]+)$/.exec(location.hash);
+    if (!m) return false;
+    var parts = m[1].split(',').map(Number);
+    if (parts.length !== 6 || parts.some(isNaN)) return false;
+    azimuth = parts[0]; elevation = parts[1]; camRadius = parts[2];
+    target = [parts[3], parts[4], parts[5]];
+    return true;
+  }
+  var restoredView = decodeViewFromHash();
+
+  function eyeFromOrbit(){
+    var e = Math.max(-1.5, Math.min(1.5, elevation));
+    return [
+      target[0] + camRadius*Math.cos(e)*Math.sin(azimuth),
+      target[1] + camRadius*Math.sin(e),
+      target[2] + camRadius*Math.cos(e)*Math.cos(azimuth)
+    ];
+  }
+
+  var autoRotate = !restoredView;
+  var dragging = false, panning = false, lastX = 0, lastY = 0;
+  canvas.addEventListener('pointerdown', function(e){
+    autoRotate = false;
+    dragging = true; panning = e.shiftKey;
+    lastX = e.clientX; lastY = e.clientY;
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointerup', function(){ dragging = false; scheduleSort(); });
+  canvas.addEventListener('pointermove', function(e){
+    if (!dragging) return;
+    var dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if (panning){
+      var eye = eyeFromOrbit();
+      var fx = target[0]-eye[0], fy = target[1]-eye[1], fz = target[2]-eye[2];
+      var fl = Math.hypot(fx,fy,fz)||1; fx/=fl; fy/=fl; fz/=fl;
+      var upx=0, upy=1, upz=0;
+      var rxN = upy*fz - upz*fy, ryN = upz*fx - upx*fz, rzN = upx*fy - upy*fx;
+      var rl = Math.hypot(rxN,ryN,rzN)||1; rxN/=rl; ryN/=rl; rzN/=rl;
+      var uxN = fy*rzN - fz*ryN, uyN = fz*rxN - fx*rzN, uzN = fx*ryN - fy*rxN;
+      var panScale = camRadius * 0.0016;
+      target[0] += (-dx*rxN + dy*uxN) * panScale;
+      target[1] += (-dx*ryN + dy*uyN) * panScale;
+      target[2] += (-dx*rzN + dy*uzN) * panScale;
+    } else {
+      azimuth -= dx * 0.006;
+      elevation += dy * 0.006;
+    }
+  });
+  canvas.addEventListener('wheel', function(e){
+    e.preventDefault();
+    autoRotate = false;
+    camRadius *= Math.exp(e.deltaY * 0.001);
+    camRadius = Math.max(minRadius, Math.min(maxRadius, camRadius));
+    scheduleSort();
+  }, {passive:false});
+
+  document.getElementById('reset').addEventListener('click', resetView);
+  document.getElementById('reset').addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' ') resetView();
+  });
+  function resetView(){
+    goToPreset(1);
+  }
+
+  window.addEventListener('keydown', function(e){
+    if (e.key >= '1' && e.key <= '4'){
+      autoRotate = false;
+      goToPreset(Number(e.key));
+    } else if (e.key === 'v' || e.key === 'V'){
+      encodeView();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown'){
+      e.preventDefault();
+      autoRotate = false;
+      if (e.key === 'ArrowLeft') azimuth -= 0.08;
+      if (e.key === 'ArrowRight') azimuth += 0.08;
+      if (e.key === 'ArrowUp') elevation = Math.min(1.5, elevation + 0.06);
+      if (e.key === 'ArrowDown') elevation = Math.max(-1.5, elevation - 0.06);
+      scheduleSort();
+    }
+  });
+
+  var FOVY = Math.PI / 4;
+  var lastSortAzimuth = azimuth;
+
+  function frame(){
+    resize();
+    var aspect = canvas.width / canvas.height;
+    var proj = mat4Perspective(FOVY, aspect, Math.max(radius*0.01, 0.01), radius*40);
+
+    if (autoRotate){
+      azimuth += 0.0018;
+      if (Math.abs(azimuth - lastSortAzimuth) > 0.25){
+        lastSortAzimuth = azimuth;
+        scheduleSort();
+      }
+    }
+
+    var eye = eyeFromOrbit();
+    var view = mat4LookAt(eye, target, [0,1,0]);
+    var focalPx = canvas.height / (2 * Math.tan(FOVY/2));
+
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.uniformMatrix4fv(uProj, false, proj);
+    gl.uniformMatrix4fv(uView, false, view);
+    gl.uniform1f(uFocalPx, focalPx);
+    gl.uniform1f(uMaxPointSize, maxPointSize);
+    gl.drawArrays(gl.POINTS, 0, count);
+
+    requestAnimationFrame(frame);
+  }
+  scheduleSort();
+  requestAnimationFrame(frame);
+})();
+</script>
