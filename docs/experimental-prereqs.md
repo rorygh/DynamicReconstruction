@@ -29,6 +29,18 @@ Consumes a COLMAP database directly (`glomap mapper --database_path ...
 --image_path ... --output_path ...`) -- no separate feature
 extraction/matching step, reuses COLMAP's.
 
+## Headless GPU SIFT (xvfb, apt)
+
+```bash
+apt-get install -y xvfb
+xvfb-run -a --server-args="-screen 0 1024x768x24" colmap feature_extractor --FeatureExtraction.use_gpu 1 ...
+```
+Not present by default. Gets COLMAP's GPU SIFT path working in a headless
+container (previously assumed impossible per `docs/architecture.md`'s
+documented SIGABRT) -- but see `docs/benchmarks.md`: it turned out ~3.9x
+*slower* than CPU on this machine/dataset, so this is documented for the
+record, not as something to actually turn on.
+
 ## Not available / not attempted
 
 - **FastMap**: no packaged binary found (conda-forge or pip); would require

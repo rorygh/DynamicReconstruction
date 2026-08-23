@@ -28,12 +28,18 @@ def run_sparse(
     sequential_overlap: int = 10,
     max_image_size: int = 1600,
     max_num_features: int = 8192,
-) -> Path:
-    """Run COLMAP feature extraction -> matching -> sparse mapping.
+) -> tuple[Path, Path]:
+    """Run COLMAP feature extraction -> matching -> sparse mapping -> undistortion.
 
     `matcher` is "sequential" (ordered video frames) or "exhaustive"
     (unordered photo collections, where every pair is a match candidate).
-    Returns the path to the resulting sparse model directory.
+    Returns (sparse_model_dir, undistorted_image_dir): real lens photos
+    have non-trivial distortion (confirmed on this project's own test
+    dataset, see docs/benchmarks.md), and training a pinhole-camera splat
+    model against still-distorted photos means every pixel-wise loss is
+    comparing against a systematically warped target. Both the returned
+    model and images are post-undistortion (PINHOLE camera), matching what
+    core/splat.py's rasterizer assumes.
     """
     image_dir = Path(image_dir)
     workspace_dir = Path(workspace_dir)
@@ -95,4 +101,14 @@ def run_sparse(
     else:
         model = models[0]
     print(f"Done -- sparse model at {model}")
-    return model
+
+    undistorted_dir = workspace_dir / "undistorted"
+    _run([
+        COLMAP_BIN, "image_undistorter",
+        "--image_path", str(image_dir),
+        "--input_path", str(model),
+        "--output_path", str(undistorted_dir),
+        "--output_type", "COLMAP",
+    ])
+    print(f"Done -- undistorted images/model at {undistorted_dir}")
+    return undistorted_dir / "sparse", undistorted_dir / "images"

@@ -37,7 +37,7 @@ def main():
     image_dir = prepare_images(input_path, frames_dir, fps=cfg["frames"]["fps"])
 
     matcher = "sequential" if input_path.is_file() else "exhaustive"
-    sparse_model = run_sparse(
+    sparse_model, image_dir = run_sparse(
         image_dir, workspace_dir,
         matcher=matcher,
         sequential_overlap=cfg["colmap"]["sequential_overlap"],

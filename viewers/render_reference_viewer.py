@@ -74,6 +74,19 @@ window.fetch = async function(url, opts){{
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Response(bytes, {{status: 200, headers: {{'content-length': String(bytes.length)}}}});
 }};
+// The embedding sandbox blocks the Gamepad feature via Permissions-Policy;
+// their code polls navigator.getGamepads() every render-loop frame with no
+// try/catch, so a blocked-feature SecurityError there kills the whole loop.
+// Make it fail safe instead of touching their code.
+(function(){{
+  var orig = navigator.getGamepads ? navigator.getGamepads.bind(navigator) : null;
+  try {{
+    Object.defineProperty(navigator, 'getGamepads', {{
+      value: function(){{ try {{ return orig ? orig() : []; }} catch (e) {{ return []; }} }},
+      configurable: true
+    }});
+  }} catch (e) {{ /* ignore if not configurable in this browser */ }}
+}})();
 """
 
     return (

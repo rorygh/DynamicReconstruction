@@ -82,6 +82,45 @@ wide-baseline capture before drawing a general conclusion.
 GLOMAP is not a drop-in speed upgrade for this kind of scene without further
 tuning (`--BundleAdjustment.*` options weren't explored).
 
+## GPU-accelerated SIFT: possible now, but not actually faster
+
+`docs/architecture.md` documents that GPU SIFT was tried previously and hit
+a SIGABRT (`opengl_utils.cc: Check failed: context_.create()`) in a headless
+pod with no display. Retested here because the earlier "how fast is COLMAP"
+research kept pointing at GPU SIFT as the obvious next speed lever, and this
+machine does have real NVIDIA GL/EGL libraries present
+(`libGLX_nvidia.so.0`, `libEGL_nvidia.so.0`) even though it's headless.
+
+**It now works** -- installing `xvfb` (`apt-get install xvfb`, not present
+by default) and running COLMAP under `xvfb-run -a --server-args="-screen 0
+1024x768x24"` gets past both the earlier Qt platform-plugin crash and the
+OpenGL-context crash; `sift.cc` logs confirm a genuine `Creating SIFT GPU
+feature extractor` (not a silent CPU fallback).
+
+**It's not worth it here.** Same 128-image dataset, same everything else:
+
+| Stage | CPU | GPU (via `xvfb-run`) |
+|---|---|---|
+| Feature extraction | ~1 min | 2.33 min |
+| Sequential matching (overlap 10) | ~6.35 min | 26.1 min |
+| **Total** | **~7.35 min** | **~28.5 min** |
+
+GPU was **~3.9x slower**, not faster -- the opposite of the expectation set
+by public benchmarks (e.g. a "~128 seconds with CUDA" figure found during
+earlier research). The GPU run's `user` CPU-time was 182 minutes despite
+"running on the GPU," which points at `xvfb-run`'s virtual-display/driver
+round-trip overhead on every SIFT call dominating any real GPU compute
+gain -- plausible with only 128 modest-resolution (1200x900) images, where
+each GPU call's fixed overhead isn't amortized over enough work per call.
+Might flip the other way on a much larger dataset or with a proper (non-Xvfb)
+display, but wasn't tested at that scale here.
+
+**Bottom line**: GPU SIFT is achievable now (unlike what the architecture
+doc assumed), documented here so nobody re-discovers the Xvfb trick from
+scratch -- but don't actually switch `core/sfm.py` to `--*.use_gpu 1` based
+on this machine's numbers. Same lesson as the GLOMAP result above: verify
+before adopting, secondhand benchmarks don't transfer.
+
 ## Training quality ablation: baseline vs SSIM+LR-decay
 
 20-image scene (all 20 registered, 9,270 sparse points), 7,000 iterations,
@@ -130,13 +169,38 @@ enormous, so image count alone doesn't explain it. Test PSNR plateaued by
 ~step 6,000-7,000 in both the 9,000- and a longer 15,000-iteration run on
 the same 128-image data (12.6-13.1 dB either way, no further gain from
 training longer), which rules out "just train longer" as the fix too.
-Suspect the real remaining gap is the training loop itself (single random
-view per step with no multi-view consistency term, vs. the reference
-implementation's same-in-principle-but-more-carefully-tuned schedule) --
-worth a follow-up ablation isolating that, not attempted here given time
-budget. `output/south-building-full/points.ply` (56,522 Gaussians) is the
-artifact from this run, viewable via `viewers/render_point_viewer.py` and
+`output/south-building-full/points.ply` (56,522 Gaussians) is the artifact
+from this run, viewable via `viewers/render_point_viewer.py` and
 `viewers/render_reference_viewer.py`.
+
+**Follow-up: lens undistortion.** `core/splat.py` builds its camera matrix
+from focal length + principal point only -- it never accounts for lens
+distortion, and the pipeline never runs COLMAP's `image_undistorter`. This
+scene's camera model is `SIMPLE_RADIAL` with a real distortion coefficient
+(k = -0.0196), which works out to roughly 13px of displacement at the image
+corners on these 1200px-wide photos -- meaning every training step's
+pixel-wise loss was comparing the render against a systematically warped
+target. Ran `colmap image_undistorter` on the same 128-image reconstruction
+(confirmed it converts the camera to a clean `PINHOLE` model, same 128
+images / 62,979 points preserved) and retrained identically (9,000 iters,
+SSIM+LR-decay):
+
+| | Final test PSNR | Final test SSIM |
+|---|---|---|
+| distorted (as shipped) | 13.02 | 0.338 |
+| undistorted | 13.16 | 0.405 |
+
+Real but modest: PSNR barely moved (+0.14dB) while SSIM improved
+meaningfully (+0.067) -- consistent with undistortion fixing geometric/
+structural alignment (what SSIM is sensitive to) without touching the
+bigger, separate problem. **Worth keeping as a permanent pipeline fix
+regardless** (it's free, and it's simply correct to train on the camera
+model that matches the actual pixel content), but it is not the answer to
+"why is quality so low" -- the training loop itself remains the prime
+suspect: single random view per step with no multi-view consistency term,
+vs. the reference implementation's same-in-principle-but-more-carefully-
+tuned schedule. Worth a follow-up ablation isolating that specifically, not
+attempted here given time budget.
 
 ## Bottom line
 
@@ -147,9 +211,13 @@ artifact from this run, viewable via `viewers/render_point_viewer.py` and
   mapper on this dataset, despite the opposite expectation from secondhand
   research -- a good example of why this doc exists instead of trusting the
   survey alone.
+- GPU SIFT: now achievable headlessly (`xvfb-run`, undocumented before
+  this session) but ~3.9x *slower* than CPU on this dataset/machine -- do
+  not switch `core/sfm.py`'s hardcoded `--*.use_gpu 0` based on this.
 - Quality: the "doesn't look photorealistic" complaint has a concrete,
   measured cause (PSNR ~10-13dB, not a vibe), not a rendering bug. Image
-  count is part of the story (+2.4dB going from 20 to 128 images) but not
-  all of it -- test PSNR plateaus by step ~6,000-7,000 regardless of total
-  iteration budget, pointing at the simplified single-view-per-step
-  training loop itself as the next thing to fix, not just "more data."
+  count helped some (+2.4dB, 20->128 images) and lens undistortion helped
+  SSIM specifically (+0.067) but barely PSNR -- neither closes the real
+  gap. Test PSNR plateaus by step ~6,000-7,000 regardless of iteration
+  budget, pointing at the simplified single-view-per-step training loop
+  itself as the next thing to fix, not more data or more training time.
